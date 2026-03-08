@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "scanner-pi"
+version = "0.1.0"
+description = "Scan multi-page documents to PDF on Raspberry Pi"
+requires-python = ">=3.11"
+dependencies = [
+    "pillow>=10.0",
+    "pypdf>=4.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest"
+]
+
+[project.scripts]
+scan-pi = "scanner_pi.scan:main"
+
+[tool.setuptools.package-data]
+"*" = ["*.toml"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

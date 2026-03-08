@@ -1,0 +1,51 @@
+# scanner-pi configuration
+# Used by scan.py. Command-line arguments override values set here.
+
+[scanner]
+# SANE device name. Leave empty ("") to auto-detect the first available scanner.
+device = ""
+
+# Paper feed source.
+#   "ADF Duplex" — scan both sides of each sheet (double-sided documents)
+#   "ADF Front"  — scan one side only (single-sided / simplex)
+source = "ADF Duplex"
+
+# Scan mode: Color, Gray, or Lineart
+mode = "Gray"
+
+# Scan resolution in DPI. 300 is standard quality; 600 for archival.
+resolution = 400
+
+# Per-page format written by scanimage.
+#   tiff  — lossless; largest intermediate files; best for Pillow processing
+#   png   — lossless; smaller than tiff
+#   jpeg  — lossy; smallest intermediate files
+#   pnm   — lossless raw bitmap
+#   pdf   — native PDF from the scanner; pages are merged with pypdf;
+#            blank-page detection is not available in this mode
+format = "tiff"
+
+# Blank page detection via driver: (0-100)
+driver_swskip = 5
+
+# Crop border via driver: true or false
+driver_swcrop = true
+
+[output]
+# Directory where scanned PDFs are saved. ~ is expanded to your home directory.
+directory = "~/scans"
+
+# Prefix for output PDF filenames.
+# Files are named  <prefix>_YYYYMMDD_HHMMSS.pdf
+filename_prefix = "scan"
+
+[processing]
+# Blank page detection threshold (normalised standard deviation, 0.0–1.0).
+# Pages whose pixel std-dev (in greyscale) falls below this value are considered
+# blank and discarded from the output PDF.
+# Increase this value to discard more aggressively (e.g. lightly-marked pages).
+blank_page_threshold = 0.03
+
+# JPEG quality used when embedding images into the PDF (1–95).
+# Higher values produce better image quality at the cost of larger file sizes.
+jpeg_quality = 80
