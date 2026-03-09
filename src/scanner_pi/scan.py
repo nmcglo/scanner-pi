@@ -26,7 +26,7 @@ import importlib.util
 from PIL import Image, ImageStat
 from pypdf import PdfWriter
 
-from scanner_pi.output import OutputError, build_handler
+from scanner_pi.output import FileSpec, OutputError, OutputHandler, build_handler
 
 # Maps the scanimage --format value to the file extension it produces.
 _FORMAT_EXT: dict[str, str] = {
@@ -72,23 +72,56 @@ log = logging.getLogger("scan")
 # Configuration
 # --------------------------------------------------------------------------- #
 
-def load_config(config_path: Path) -> dict:
-    """Load TOML config file and merge with built-in defaults."""
+def load_config(config_path: Path, context: str = "scan") -> dict:
+    """
+    Load TOML config and merge with built-in defaults.
+
+    Merge order (later entries win):
+
+    1. Built-in ``DEFAULTS``
+    2. ``[global.*]`` sections — settings shared by both scan-pi and
+       scan-pi-listen
+    3. ``[<context>.*]`` sub-sections — context-specific overrides
+       (``context="scan"`` or ``context="listener"``)
+
+    The returned dict always has the flat structure used by the rest of the
+    module: ``{scanner: {...}, output: {...}, processing: {...}}``.
+
+    Context-level destinations (e.g. ``[[listener.destinations]]``) are
+    stored under ``config[context]["destinations"]`` for the caller to read.
+    """
     config: dict = {section: dict(values) for section, values in DEFAULTS.items()}
 
-    if config_path.exists():
-        with open(config_path, "rb") as fh:
-            user_config = tomllib.load(fh)
-        for section, values in user_config.items():
-            if section in config:
-                log.debug("Merging config section [%s]", section)
-                config[section].update(values)
-            else:
-                log.debug("Adding new config section [%s]", section)
-                config[section] = values
-        log.debug("Loaded config from %s", config_path)
-    else:
+    if not config_path.exists():
         log.debug("Config file not found at %s — using built-in defaults", config_path)
+        return config
+
+    with open(config_path, "rb") as fh:
+        raw = tomllib.load(fh)
+    log.debug("Loaded config from %s", config_path)
+
+    # 1. Merge [global.*] sections — apply to both scan and listener.
+    global_cfg = raw.get("global", {})
+    for section in ("scanner", "output", "processing"):
+        section_data = global_cfg.get(section, {})
+        if section_data:
+            log.debug("Merging [global.%s]", section)
+            config[section].update(section_data)
+
+    # 2. Merge context-specific sub-sections ([scan.*] or [listener.*]).
+    #    These override any values already set from [global.*].
+    ctx_cfg = raw.get(context, {})
+    for section in ("scanner", "output", "processing"):
+        section_data = ctx_cfg.get(section, {})
+        if section_data:
+            log.debug("Merging [%s.%s]", context, section)
+            config[section].update(section_data)
+
+    # 3. Expose context-level destinations (e.g. [[listener.destinations]]).
+    #    These live directly under [<context>], not inside a sub-section.
+    ctx_destinations = ctx_cfg.get("destinations", [])
+    if ctx_destinations:
+        config.setdefault(context, {})["destinations"] = ctx_destinations
 
     return config
 
@@ -340,7 +373,7 @@ def main() -> None:
     if args.simplex and args.source is None:
         args.source = "ADF Front"
 
-    config = load_config(args.config)
+    config = load_config(args.config, context="scan")
     config = apply_overrides(config, args)
 
     scanner_cfg = config["scanner"]
@@ -350,15 +383,16 @@ def main() -> None:
     # Resolve device (auto-detect if not set)
     device: str = scanner_cfg["device"] or detect_device()
 
-    # Resolve and create output directory
-    output_dir = Path(output_cfg["directory"]).expanduser().resolve()
-    output_dir.mkdir(parents=True, exist_ok=True)
-
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_pdf = output_dir / f"{output_cfg['filename_prefix']}_{timestamp}.pdf"
+    pdf_name = f"{output_cfg['filename_prefix']}_{timestamp}.pdf"
+
+    # primary_path is set below to the first FileSpec destination (if any),
+    # and printed to stdout so callers such as the button-listener can use it.
+    primary_path: Path | None = None
 
     with tempfile.TemporaryDirectory(prefix="scanner-pi-") as tmp:
         tmp_path = Path(tmp)
+        assembled_pdf = tmp_path / pdf_name
 
         fmt = scanner_cfg["format"]
 
@@ -378,33 +412,47 @@ def main() -> None:
             log.error("No pages scanned — is the document feeder loaded?")
             sys.exit(1)
 
-        # 2. Assemble — path depends on whether scanimage produced images or PDFs
+        # 2. Assemble into a temp PDF — path depends on per-page format
         if fmt == "pdf":
             # Per-page PDFs: merge directly; blank detection is not available
             log.info("Native PDF format: skipping blank-page detection")
-            merge_pdfs(pages, output_pdf)
+            merge_pdfs(pages, assembled_pdf)
         else:
             # Image format: detect and discard blank pages, then build PDF
             pages = filter_blank_pages(pages, float(proc_cfg["blank_page_threshold"]))
             if not pages:
                 log.error("All pages were blank — aborting.")
                 sys.exit(1)
-            assemble_pdf(pages, output_pdf, int(proc_cfg["jpeg_quality"]))
+            assemble_pdf(pages, assembled_pdf, int(proc_cfg["jpeg_quality"]))
 
-    # 3. Deliver to any extra output destinations configured under
-    #    [[output.destinations]] in the config file.
-    extra_dests = config.get("output", {}).get("destinations", [])
-    if extra_dests:
-        handler = build_handler(extra_dests)
+        # 3. Deliver via the configured output pipeline.
+        #    [[scan.output.destinations]] (or [[global.output.destinations]]) are
+        #    THE output — not extras on top of a local save.  When no destinations
+        #    are configured, the default is to save to [global.output].directory.
+        destinations = output_cfg.get("destinations", [])
+        if destinations:
+            handler = build_handler(destinations)
+        else:
+            output_dir = Path(output_cfg["directory"]).expanduser().resolve()
+            output_dir.mkdir(parents=True, exist_ok=True)
+            handler = OutputHandler([FileSpec(directory=output_dir)])
+
         try:
-            handler.send(output_pdf)
+            handler.send(assembled_pdf)
         except OutputError as exc:
-            # Log every failure but don't abort — the PDF is already saved locally.
             for spec, err in exc.failures:
                 log.error("Output to %r failed: %s", spec, err)
 
-    # Print the output path so callers (scripts, button handlers, etc.) can use it
-    print(output_pdf)
+        # Determine the primary (first FileSpec) output path for stdout.
+        for spec in handler.specs:
+            if isinstance(spec, FileSpec):
+                primary_path = Path(spec.directory) / (spec.filename or pdf_name)
+                break
+
+    # Print the path so callers (scripts, button-listener, etc.) can consume it.
+    # Nothing is printed when there is no FileSpec destination (e.g. upload-only).
+    if primary_path is not None:
+        print(primary_path)
 
 
 if __name__ == "__main__":

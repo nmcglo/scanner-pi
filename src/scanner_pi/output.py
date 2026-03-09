@@ -257,6 +257,11 @@ class OutputHandler:
         if failures:
             raise OutputError(failures)
 
+    @property
+    def specs(self) -> list[OutputDestinationSpec]:
+        """Return a read-only snapshot of the configured destination specs."""
+        return list(self._specs)
+
     def __len__(self) -> int:
         return len(self._specs)
 

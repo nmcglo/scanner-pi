@@ -217,6 +217,22 @@ class TestDoScan(unittest.TestCase):
         with patch("subprocess.run", return_value=self._mock_result(1, stderr="something broke")):
             listener.do_scan(Path("/tmp/my.toml"))  # should not raise
 
+    def test_returns_none_when_stdout_empty_on_success(self):
+        """
+        scan-pi may print nothing if no FileSpec destination is configured
+        (e.g. upload-only to Paperless-ngx).  do_scan should return None
+        in that case rather than constructing a Path from an empty string.
+        """
+        with patch("subprocess.run", return_value=self._mock_result(0, stdout="")):
+            result = listener.do_scan(Path("/tmp/my.toml"))
+        self.assertIsNone(result)
+
+    def test_returns_none_when_stdout_whitespace_only(self):
+        """Whitespace-only stdout (e.g. bare newline) is treated the same as empty."""
+        with patch("subprocess.run", return_value=self._mock_result(0, stdout="\n")):
+            result = listener.do_scan(Path("/tmp/my.toml"))
+        self.assertIsNone(result)
+
     def test_config_path_sent_as_posix_string(self):
         """Path is converted via as_posix() so forward slashes are used."""
         with patch("subprocess.run", return_value=self._mock_result(0)) as mock_run:

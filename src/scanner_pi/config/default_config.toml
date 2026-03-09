@@ -1,7 +1,16 @@
 # scanner-pi configuration
-# Used by scan.py. Command-line arguments override values set here.
+#
+# Settings in [global.*] apply to both scan-pi and scan-pi-listen.
+# Settings in [scan.*] apply to scan-pi only and override [global.*].
+# Settings in [listener.*] apply to scan-pi-listen only and override [global.*].
+#
+# Command-line arguments always take highest precedence.
 
-[scanner]
+# --------------------------------------------------------------------------- #
+# Global defaults (shared by scan-pi and scan-pi-listen)
+# --------------------------------------------------------------------------- #
+
+[global.scanner]
 # SANE device name. Leave empty ("") to auto-detect the first available scanner.
 device = ""
 
@@ -25,56 +34,83 @@ resolution = 400
 #            blank-page detection is not available in this mode
 format = "tiff"
 
-# Blank page detection via driver: (0-100)
+# Blank-page detection via driver (0–100). 0 = off, higher = more aggressive.
 driver_swskip = 5
 
-# Crop border via driver: true or false
+# Crop borders via driver: true or false
 driver_swcrop = true
 
-[output]
-# Directory where scanned PDFs are saved. ~ is expanded to your home directory.
+[global.output]
+# Directory where scanned PDFs are saved by default. ~ is expanded.
 directory = "~/scans"
 
-# Prefix for output PDF filenames.
-# Files are named  <prefix>_YYYYMMDD_HHMMSS.pdf
+# Prefix for output PDF filenames.  Files are named <prefix>_YYYYMMDD_HHMMSS.pdf
 filename_prefix = "scan"
 
-# Extra destinations for every scan-pi invocation (manual or button-triggered).
-# The PDF is always saved to [output].directory first; these run afterwards.
-# Uncomment and repeat the block for each additional destination.
+[global.processing]
+# Blank-page detection threshold (normalised standard deviation, 0.0–1.0).
+# Pages whose greyscale std-dev falls below this value are discarded.
+# Increase to discard more aggressively (e.g. lightly-marked pages).
+blank_page_threshold = 0.03
+
+# JPEG quality used when embedding images into the PDF (1–95).
+# Higher values produce better quality at the cost of larger files.
+jpeg_quality = 80
+
+
+# --------------------------------------------------------------------------- #
+# scan-pi overrides
+# --------------------------------------------------------------------------- #
 #
-# File copy example — duplicate to a network share or backup location:
-# [[output.destinations]]
+# Any [global.*] value can be overridden here for manual / CLI scans.
+#
+# [[scan.output.destinations]] defines THE output pipeline for scan-pi.
+# If no destinations are configured (here or in [global.output]), the PDF
+# is saved to [global.output].directory as the default.
+# When destinations ARE configured, only those destinations are used —
+# there is no implicit local save unless you include a "file" destination.
+#
+# Uncomment and customise:
+#
+# [scan.scanner]
+# resolution = 600
+# mode = "Color"
+#
+# [scan.output]
+# directory = "~/docs"
+# filename_prefix = "doc"
+#
+# [[scan.output.destinations]]
 # type = "file"
-# directory = "/mnt/nas/scans"
+# directory = "~/scans"
 #
-# Paperless-ngx example:
-# [[output.destinations]]
+# [[scan.output.destinations]]
 # type = "paperless_ngx"
 # base_url = "http://192.168.1.100:8000"
 # token = "your-api-token-here"
-# title = "Scanned Document"          # optional
-# tag_names = ["scanner"]             # optional; names are resolved to IDs
-# correspondent_name = "My Bank"      # optional
-# document_type_name = "Invoice"      # optional
+# title = "Scanned Document"      # optional
+# tag_names = ["scanner"]         # optional; tag names are resolved to IDs
+# correspondent_name = "My Bank"  # optional
+# document_type_name = "Invoice"  # optional
 
-# Extra destinations run ONLY when a scan is triggered by the hardware button.
-# Useful for keeping manual scans local-only while button scans also upload.
-# Uncomment and repeat the block for each additional destination.
+
+# --------------------------------------------------------------------------- #
+# scan-pi-listen overrides
+# --------------------------------------------------------------------------- #
+#
+# Any [global.*] value can be overridden here for the button-listener daemon.
+#
+# [[listener.destinations]] run AFTER each button-triggered scan, using the
+# local PDF path produced by scan-pi.  They are only invoked when scan-pi
+# saves a local file (i.e. at least one "file" destination is in the scan
+# output pipeline).  Useful for keeping manual scans local-only while
+# button-triggered scans also upload somewhere.
+#
+# [listener.scanner]
+# source = "ADF Front"   # e.g. always simplex when using the button
 #
 # [[listener.destinations]]
 # type = "paperless_ngx"
 # base_url = "http://192.168.1.100:8000"
 # token = "your-api-token-here"
 # tag_names = ["scanner", "inbox"]
-
-[processing]
-# Blank page detection threshold (normalised standard deviation, 0.0–1.0).
-# Pages whose pixel std-dev (in greyscale) falls below this value are considered
-# blank and discarded from the output PDF.
-# Increase this value to discard more aggressively (e.g. lightly-marked pages).
-blank_page_threshold = 0.03
-
-# JPEG quality used when embedding images into the PDF (1–95).
-# Higher values produce better image quality at the cost of larger file sizes.
-jpeg_quality = 80

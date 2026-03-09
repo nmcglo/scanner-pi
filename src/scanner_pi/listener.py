@@ -96,9 +96,14 @@ def do_scan(config_path: Path) -> Path | None:
         text=True,
     )
     if result.returncode == 0:
-        pdf_path = Path(result.stdout.strip())
-        log.info("Scan complete: %s", pdf_path)
-        return pdf_path
+        out = result.stdout.strip()
+        if out:
+            pdf_path = Path(out)
+            log.info("Scan complete: %s", pdf_path)
+            return pdf_path
+        # scan-pi printed nothing — no FileSpec destination configured
+        log.info("Scan complete (no local file produced)")
+        return None
     else:
         log.error(
             "scan-pi failed (exit %d):\n%s",
@@ -132,10 +137,11 @@ def listen(
     ----------
     handler:
         Optional OutputHandler to run after each successful scan.  Configured
-        via ``[[listener.destinations]]`` in the config file, these
-        destinations are separate from — and additive to — any
-        ``[[output.destinations]]`` that scan-pi itself runs.  OutputErrors
-        from the handler are logged but do not interrupt the listen loop.
+        via ``[[listener.destinations]]`` in the config file.  These run
+        against the local PDF path returned by scan-pi; they are only invoked
+        when scan-pi produces a local file (i.e. at least one FileSpec is in
+        the scan output pipeline).  OutputErrors are logged but do not
+        interrupt the listen loop.
     """
     log.info("Watching for button press on: %s", device)
     while True:
@@ -210,7 +216,7 @@ def main() -> None:
         format="%(levelname)s: %(message)s",
     )
 
-    config = scan.load_config(args.config)
+    config = scan.load_config(args.config, context="listener")
     device = args.device or config["scanner"]["device"] or scan.detect_device()
 
     # Build an OutputHandler from [[listener.destinations]] if configured.

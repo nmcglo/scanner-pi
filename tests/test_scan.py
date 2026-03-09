@@ -101,21 +101,21 @@ class TestLoadConfig(unittest.TestCase):
         self.assertEqual(config["processing"]["jpeg_quality"], 85)
         self.assertAlmostEqual(config["processing"]["blank_page_threshold"], 0.015)
 
-    def test_full_config_overrides_all_defaults(self):
+    def test_full_global_config_overrides_all_defaults(self):
         with tempfile.TemporaryDirectory() as tmp:
             cfg = _write_toml(Path(tmp), b"""
-[scanner]
+[global.scanner]
 device = "my_device"
 source = "ADF Front"
 mode = "Gray"
 resolution = 600
 format = "pdf"
 
-[output]
+[global.output]
 directory = "/tmp/docs"
 filename_prefix = "doc"
 
-[processing]
+[global.processing]
 blank_page_threshold = 0.05
 jpeg_quality = 70
 """)
@@ -131,11 +131,11 @@ jpeg_quality = 70
         self.assertAlmostEqual(config["processing"]["blank_page_threshold"], 0.05)
         self.assertEqual(config["processing"]["jpeg_quality"], 70)
 
-    def test_partial_config_merges_with_defaults(self):
+    def test_partial_global_config_merges_with_defaults(self):
         """Only the specified keys are overridden; the rest stay as defaults."""
         with tempfile.TemporaryDirectory() as tmp:
             cfg = _write_toml(Path(tmp), b"""
-[scanner]
+[global.scanner]
 mode = "Gray"
 """)
             config = scan.load_config(cfg)
@@ -147,21 +147,6 @@ mode = "Gray"
         # Other sections completely untouched
         self.assertEqual(config["processing"]["jpeg_quality"], 85)
 
-    def test_extra_sections_in_config_are_preserved(self):
-        """Sections not in DEFAULTS should be passed through as-is."""
-        with tempfile.TemporaryDirectory() as tmp:
-            cfg = _write_toml(Path(tmp), b"""
-[custom]
-foo = "bar"
-count = 42
-""")
-            config = scan.load_config(cfg)
-
-        self.assertEqual(config["custom"]["foo"], "bar")
-        self.assertEqual(config["custom"]["count"], 42)
-        # Defaults sections are still present
-        self.assertEqual(config["scanner"]["resolution"], 300)
-
     def test_empty_config_file_returns_defaults(self):
         with tempfile.TemporaryDirectory() as tmp:
             cfg = _write_toml(Path(tmp), b"")
@@ -169,6 +154,168 @@ count = 42
 
         self.assertEqual(config["scanner"]["mode"], "Color")
         self.assertEqual(config["processing"]["jpeg_quality"], 85)
+
+
+# --------------------------------------------------------------------------- #
+# load_config — context merging
+# --------------------------------------------------------------------------- #
+
+class TestLoadConfigContext(unittest.TestCase):
+    """Tests for the global → context-specific merge behaviour."""
+
+    def test_context_defaults_to_scan(self):
+        """Calling load_config without context= uses the 'scan' context."""
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = _write_toml(Path(tmp), b"""
+[scan.scanner]
+mode = "Lineart"
+""")
+            config = scan.load_config(cfg)   # no context kwarg
+
+        self.assertEqual(config["scanner"]["mode"], "Lineart")
+
+    def test_scan_scanner_overrides_global_scanner(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = _write_toml(Path(tmp), b"""
+[global.scanner]
+mode = "Gray"
+resolution = 300
+
+[scan.scanner]
+mode = "Color"
+""")
+            config = scan.load_config(cfg, context="scan")
+
+        self.assertEqual(config["scanner"]["mode"], "Color")       # scan wins
+        self.assertEqual(config["scanner"]["resolution"], 300)     # from global
+
+    def test_scan_output_overrides_global_output(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = _write_toml(Path(tmp), b"""
+[global.output]
+directory = "~/scans"
+filename_prefix = "scan"
+
+[scan.output]
+filename_prefix = "manual"
+""")
+            config = scan.load_config(cfg, context="scan")
+
+        self.assertEqual(config["output"]["filename_prefix"], "manual")  # scan wins
+        self.assertEqual(config["output"]["directory"], "~/scans")       # from global
+
+    def test_scan_processing_overrides_global_processing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = _write_toml(Path(tmp), b"""
+[global.processing]
+jpeg_quality = 80
+
+[scan.processing]
+jpeg_quality = 60
+""")
+            config = scan.load_config(cfg, context="scan")
+
+        self.assertEqual(config["processing"]["jpeg_quality"], 60)
+
+    def test_listener_context_overrides_global(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = _write_toml(Path(tmp), b"""
+[global.scanner]
+source = "ADF Duplex"
+
+[listener.scanner]
+source = "ADF Front"
+""")
+            config = scan.load_config(cfg, context="listener")
+
+        self.assertEqual(config["scanner"]["source"], "ADF Front")
+
+    def test_scan_context_does_not_apply_listener_overrides(self):
+        """Listener-specific settings must not bleed into the scan context."""
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = _write_toml(Path(tmp), b"""
+[global.scanner]
+mode = "Gray"
+
+[listener.scanner]
+mode = "Color"
+""")
+            config = scan.load_config(cfg, context="scan")
+
+        self.assertEqual(config["scanner"]["mode"], "Gray")   # listener ignored
+
+    def test_global_output_destinations_loaded(self):
+        """[[global.output.destinations]] ends up in config['output']['destinations']."""
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = _write_toml(Path(tmp), b"""
+[[global.output.destinations]]
+type = "file"
+directory = "/tmp/scans"
+""")
+            config = scan.load_config(cfg, context="scan")
+
+        dests = config["output"].get("destinations", [])
+        self.assertEqual(len(dests), 1)
+        self.assertEqual(dests[0]["type"], "file")
+        self.assertEqual(dests[0]["directory"], "/tmp/scans")
+
+    def test_scan_destinations_replace_global_destinations(self):
+        """Context-specific destinations completely replace global ones."""
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = _write_toml(Path(tmp), b"""
+[[global.output.destinations]]
+type = "file"
+directory = "/tmp/global"
+
+[[scan.output.destinations]]
+type = "file"
+directory = "/tmp/scan-specific"
+""")
+            config = scan.load_config(cfg, context="scan")
+
+        dests = config["output"].get("destinations", [])
+        self.assertEqual(len(dests), 1)
+        self.assertEqual(dests[0]["directory"], "/tmp/scan-specific")
+
+    def test_listener_destinations_accessible(self):
+        """[[listener.destinations]] is exposed as config['listener']['destinations']."""
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = _write_toml(Path(tmp), b"""
+[[listener.destinations]]
+type = "file"
+directory = "/tmp/listener"
+""")
+            config = scan.load_config(cfg, context="listener")
+
+        dests = config.get("listener", {}).get("destinations", [])
+        self.assertEqual(len(dests), 1)
+        self.assertEqual(dests[0]["directory"], "/tmp/listener")
+
+    def test_listener_destinations_not_in_scan_context(self):
+        """[[listener.destinations]] must not appear when loading with context='scan'."""
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = _write_toml(Path(tmp), b"""
+[[listener.destinations]]
+type = "file"
+directory = "/tmp/listener"
+""")
+            config = scan.load_config(cfg, context="scan")
+
+        dests = config.get("scan", {}).get("destinations", [])
+        self.assertEqual(dests, [])
+
+    def test_global_only_no_context_section(self):
+        """A config with only [global.*] applies correctly regardless of context."""
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = _write_toml(Path(tmp), b"""
+[global.scanner]
+resolution = 600
+""")
+            config_scan     = scan.load_config(cfg, context="scan")
+            config_listener = scan.load_config(cfg, context="listener")
+
+        self.assertEqual(config_scan["scanner"]["resolution"], 600)
+        self.assertEqual(config_listener["scanner"]["resolution"], 600)
 
 
 # --------------------------------------------------------------------------- #
