@@ -30,6 +30,7 @@ from scanner_pi import util
 util.monkey_patch_sane_scan(sane)  # avoid dumb collision between sane.SaneDev.scan and sane.SaneDev.options["scan"]
 
 from scanner_pi import scan
+from scanner_pi.output import OutputError, OutputHandler, build_handler
 
 log = logging.getLogger("listener")
 
@@ -78,27 +79,33 @@ def await_button(device: str, poll_interval: float = _POLL_INTERVAL) -> None:
 # Scan trigger
 # --------------------------------------------------------------------------- #
 
-def do_scan(config_path: Path) -> None:
+def do_scan(config_path: Path) -> Path | None:
     """
-    Invoke scan-pi as a subprocess and log the outcome.
+    Invoke scan-pi as a subprocess and return the path of the assembled PDF.
 
     Running as a subprocess (rather than importing scan.main directly) gives
     us a clean process boundary — any crash in the scan does not bring down
     the listener daemon.
+
+    Returns the Path printed to stdout by scan-pi on success, or None if
+    scan-pi exits with a non-zero code.
     """
     result = subprocess.run(
-        ["scan-pi", "--config", str(config_path)],
+        ["scan-pi", "--config", config_path.as_posix()],
         capture_output=True,
         text=True,
     )
     if result.returncode == 0:
-        log.info("Scan complete: %s", result.stdout.strip())
+        pdf_path = Path(result.stdout.strip())
+        log.info("Scan complete: %s", pdf_path)
+        return pdf_path
     else:
         log.error(
             "scan-pi failed (exit %d):\n%s",
             result.returncode,
             result.stderr.strip(),
         )
+        return None
 
 
 # --------------------------------------------------------------------------- #
@@ -111,6 +118,7 @@ def listen(
     poll_interval: float = _POLL_INTERVAL,
     retry_delay: float   = _RETRY_DELAY,
     debounce_delay: float = _DEBOUNCE,
+    handler: OutputHandler | None = None,
 ) -> None:
     """
     Loop forever: wait for a button press, trigger a scan, repeat.
@@ -119,6 +127,15 @@ def listen(
     logged and the loop retries after *retry_delay* seconds.  After each
     successful scan, the button is ignored for *debounce_delay* seconds to
     prevent double-triggers from a single press.
+
+    Parameters
+    ----------
+    handler:
+        Optional OutputHandler to run after each successful scan.  Configured
+        via ``[[listener.destinations]]`` in the config file, these
+        destinations are separate from — and additive to — any
+        ``[[output.destinations]]`` that scan-pi itself runs.  OutputErrors
+        from the handler are logged but do not interrupt the listen loop.
     """
     log.info("Watching for button press on: %s", device)
     while True:
@@ -126,7 +143,13 @@ def listen(
             log.debug("Awaiting button press...")
             await_button(device, poll_interval=poll_interval)
             log.info("Button pressed — starting scan")
-            do_scan(config_path)
+            pdf_path = do_scan(config_path)
+            if pdf_path is not None and handler is not None:
+                try:
+                    handler.send(pdf_path)
+                except OutputError as exc:
+                    for spec, err in exc.failures:
+                        log.error("Listener output to %r failed: %s", spec, err)
             log.debug("Debounce: waiting %.1f s", debounce_delay)
             time.sleep(debounce_delay)
         except KeyboardInterrupt:
@@ -190,12 +213,19 @@ def main() -> None:
     config = scan.load_config(args.config)
     device = args.device or config["scanner"]["device"] or scan.detect_device()
 
+    # Build an OutputHandler from [[listener.destinations]] if configured.
+    # These run after each button-triggered scan, independently of any
+    # [[output.destinations]] that scan-pi itself processes.
+    listener_dests = config.get("listener", {}).get("destinations", [])
+    handler = build_handler(listener_dests) if listener_dests else None
+
     listen(
         device=device,
         config_path=args.config,
         poll_interval=args.poll_interval,
         retry_delay=args.retry_delay,
         debounce_delay=args.debounce_delay,
+        handler=handler,
     )
 
 

@@ -26,6 +26,8 @@ import importlib.util
 from PIL import Image, ImageStat
 from pypdf import PdfWriter
 
+from scanner_pi.output import OutputError, build_handler
+
 # Maps the scanimage --format value to the file extension it produces.
 _FORMAT_EXT: dict[str, str] = {
     "tiff": "tif",
@@ -388,6 +390,18 @@ def main() -> None:
                 log.error("All pages were blank — aborting.")
                 sys.exit(1)
             assemble_pdf(pages, output_pdf, int(proc_cfg["jpeg_quality"]))
+
+    # 3. Deliver to any extra output destinations configured under
+    #    [[output.destinations]] in the config file.
+    extra_dests = config.get("output", {}).get("destinations", [])
+    if extra_dests:
+        handler = build_handler(extra_dests)
+        try:
+            handler.send(output_pdf)
+        except OutputError as exc:
+            # Log every failure but don't abort — the PDF is already saved locally.
+            for spec, err in exc.failures:
+                log.error("Output to %r failed: %s", spec, err)
 
     # Print the output path so callers (scripts, button handlers, etc.) can use it
     print(output_pdf)

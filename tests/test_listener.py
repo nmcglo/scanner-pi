@@ -192,18 +192,33 @@ class TestDoScan(unittest.TestCase):
         self.assertTrue(kwargs.get("capture_output"))
         self.assertTrue(kwargs.get("text"))
 
-    def test_succeeds_silently_on_zero_exit(self):
-        """Zero exit code — no exception raised."""
-        with patch("subprocess.run", return_value=self._mock_result(0, stdout="scan_20240101.pdf")):
-            listener.do_scan(Path("/tmp/my.toml"))  # should not raise
+    def test_returns_path_on_success(self):
+        """Returns the Path printed to stdout by scan-pi on a zero exit."""
+        with patch("subprocess.run",
+                   return_value=self._mock_result(0, stdout="/home/neil/scans/scan_20240101.pdf\n")):
+            result = listener.do_scan(Path("/tmp/my.toml"))
+        self.assertEqual(result, Path("/home/neil/scans/scan_20240101.pdf"))
+
+    def test_returns_none_on_failure(self):
+        """Returns None when scan-pi exits with a non-zero code."""
+        with patch("subprocess.run", return_value=self._mock_result(1, stderr="something broke")):
+            result = listener.do_scan(Path("/tmp/my.toml"))
+        self.assertIsNone(result)
+
+    def test_strips_trailing_newline_from_path(self):
+        """Trailing whitespace in scan-pi stdout is stripped before Path construction."""
+        with patch("subprocess.run",
+                   return_value=self._mock_result(0, stdout="/tmp/scan.pdf\n")):
+            result = listener.do_scan(Path("/tmp/my.toml"))
+        self.assertEqual(result, Path("/tmp/scan.pdf"))
 
     def test_handles_nonzero_exit_without_raising(self):
         """Nonzero exit — error is logged but no exception propagates to the caller."""
         with patch("subprocess.run", return_value=self._mock_result(1, stderr="something broke")):
             listener.do_scan(Path("/tmp/my.toml"))  # should not raise
 
-    def test_config_path_stringified(self):
-        """Path objects are converted to strings when building the command."""
+    def test_config_path_sent_as_posix_string(self):
+        """Path is converted via as_posix() so forward slashes are used."""
         with patch("subprocess.run", return_value=self._mock_result(0)) as mock_run:
             listener.do_scan(Path("/tmp/my.toml"))
 
@@ -345,6 +360,77 @@ class TestListen(unittest.TestCase):
                                     poll_interval=0.5)
 
         mock_await.assert_called_once_with("fujitsu:dev:1", poll_interval=0.5)
+
+    # ---- OutputHandler integration -----------------------------------------
+
+    def test_handler_send_called_with_pdf_path_when_scan_succeeds(self):
+        """If do_scan returns a Path and handler is provided, handler.send() is called."""
+        from scanner_pi.output import OutputHandler
+        from unittest.mock import MagicMock
+
+        pdf_path = Path("/home/neil/scans/scan_001.pdf")
+        mock_handler = MagicMock(spec=OutputHandler)
+
+        awaits = [None, KeyboardInterrupt]
+
+        with patch.object(listener, "await_button", side_effect=awaits):
+            with patch.object(listener, "do_scan", return_value=pdf_path):
+                with patch("time.sleep"):
+                    with self.assertRaises(SystemExit):
+                        listener.listen("dev", Path("/tmp/config.toml"),
+                                        handler=mock_handler)
+
+        mock_handler.send.assert_called_once_with(pdf_path)
+
+    def test_handler_not_called_when_scan_returns_none(self):
+        """If do_scan returns None (scan failed), handler.send() is NOT called."""
+        from scanner_pi.output import OutputHandler
+
+        mock_handler = MagicMock(spec=OutputHandler)
+
+        awaits = [None, KeyboardInterrupt]
+
+        with patch.object(listener, "await_button", side_effect=awaits):
+            with patch.object(listener, "do_scan", return_value=None):
+                with patch("time.sleep"):
+                    with self.assertRaises(SystemExit):
+                        listener.listen("dev", Path("/tmp/config.toml"),
+                                        handler=mock_handler)
+
+        mock_handler.send.assert_not_called()
+
+    def test_handler_not_called_when_handler_is_none(self):
+        """With handler=None (default), nothing extra is called after a scan."""
+        pdf_path = Path("/home/neil/scans/scan_001.pdf")
+        awaits = [None, KeyboardInterrupt]
+
+        with patch.object(listener, "await_button", side_effect=awaits):
+            with patch.object(listener, "do_scan", return_value=pdf_path):
+                with patch("time.sleep"):
+                    with self.assertRaises(SystemExit):
+                        listener.listen("dev", Path("/tmp/config.toml"),
+                                        handler=None)
+        # no assertion needed — test just confirms no AttributeError / TypeError raised
+
+    def test_output_error_from_handler_is_logged_not_raised(self):
+        """OutputError from handler.send() does not interrupt the listen loop."""
+        from scanner_pi.output import OutputError, OutputHandler
+
+        pdf_path = Path("/tmp/scan.pdf")
+        failing_handler = MagicMock(spec=OutputHandler)
+        failing_handler.send.side_effect = OutputError([(MagicMock(), RuntimeError("net error"))])
+
+        awaits = [None, KeyboardInterrupt]
+
+        with patch.object(listener, "await_button", side_effect=awaits):
+            with patch.object(listener, "do_scan", return_value=pdf_path):
+                with patch("time.sleep"):
+                    with self.assertRaises(SystemExit) as ctx:
+                        listener.listen("dev", Path("/tmp/config.toml"),
+                                        handler=failing_handler)
+
+        # Loop must have exited cleanly via KeyboardInterrupt, not via the OutputError
+        self.assertEqual(ctx.exception.code, 0)
 
 
 # --------------------------------------------------------------------------- #

@@ -39,6 +39,35 @@ directory = "~/scans"
 # Files are named  <prefix>_YYYYMMDD_HHMMSS.pdf
 filename_prefix = "scan"
 
+# Extra destinations for every scan-pi invocation (manual or button-triggered).
+# The PDF is always saved to [output].directory first; these run afterwards.
+# Uncomment and repeat the block for each additional destination.
+#
+# File copy example — duplicate to a network share or backup location:
+# [[output.destinations]]
+# type = "file"
+# directory = "/mnt/nas/scans"
+#
+# Paperless-ngx example:
+# [[output.destinations]]
+# type = "paperless_ngx"
+# base_url = "http://192.168.1.100:8000"
+# token = "your-api-token-here"
+# title = "Scanned Document"          # optional
+# tag_names = ["scanner"]             # optional; names are resolved to IDs
+# correspondent_name = "My Bank"      # optional
+# document_type_name = "Invoice"      # optional
+
+# Extra destinations run ONLY when a scan is triggered by the hardware button.
+# Useful for keeping manual scans local-only while button scans also upload.
+# Uncomment and repeat the block for each additional destination.
+#
+# [[listener.destinations]]
+# type = "paperless_ngx"
+# base_url = "http://192.168.1.100:8000"
+# token = "your-api-token-here"
+# tag_names = ["scanner", "inbox"]
+
 [processing]
 # Blank page detection threshold (normalised standard deviation, 0.0–1.0).
 # Pages whose pixel std-dev (in greyscale) falls below this value are considered
