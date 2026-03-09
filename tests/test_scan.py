@@ -647,10 +647,12 @@ class TestBuildParser(unittest.TestCase):
         parser = scan.build_parser()
         return parser.parse_args(argv)
 
-    def test_default_config_is_xdg_path(self):
+    def test_default_config_is_package_bundled_config(self):
+        """Default config resolves to the config.toml shipped inside the package."""
         args = self._parse([])
         self.assertEqual(args.config, scan.DEFAULT_CONFIG_PATH)
-        self.assertEqual(args.config, Path.home() / ".config" / "scanner-pi" / "config.toml")
+        self.assertTrue(args.config.name == "default_config.toml")
+        self.assertTrue(args.config.exists(), f"Bundled config not found at {args.config}")
 
     def test_custom_config_accepted(self):
         args = self._parse(["--config", "/tmp/my.toml"])

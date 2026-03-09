@@ -9,7 +9,9 @@ description = "Scan multi-page documents to PDF on Raspberry Pi"
 requires-python = ">=3.11"
 dependencies = [
     "pillow>=10.0",
+    "pyinsane2>=2.0.13",
     "pypdf>=4.0",
+    "python-sane>=2.9",
 ]
 
 [dependency-groups]
@@ -18,7 +20,8 @@ dev = [
 ]
 
 [project.scripts]
-scan-pi = "scanner_pi.scan:main"
+scan-pi        = "scanner_pi.scan:main"
+scan-pi-listen = "scanner_pi.listener:main"
 
 [tool.setuptools.package-data]
 "*" = ["*.toml"]

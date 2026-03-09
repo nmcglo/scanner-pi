@@ -61,7 +61,7 @@ DEFAULTS: dict = {
 
 # the default config path is the config file in scanner_pi.config
 # use importlib to obtain the file path
-DEFAULT_CONFIG_PATH = Path(importlib.util.find_spec("scanner_pi.config").origin).parent / "config.toml"
+DEFAULT_CONFIG_PATH = Path(importlib.util.find_spec("scanner_pi.config").origin).parent / "default_config.toml"
 
 log = logging.getLogger("scan")
 
