@@ -30,6 +30,7 @@ from scanner_pi import util
 util.monkey_patch_sane_scan(sane)  # avoid dumb collision between sane.SaneDev.scan and sane.SaneDev.options["scan"]
 
 from scanner_pi import scan
+from scanner_pi.config.configuration import apply_env_overrides
 from scanner_pi.output import OutputError, OutputHandler, build_handler
 
 log = logging.getLogger("listener")
@@ -217,6 +218,8 @@ def main() -> None:
     )
 
     config = scan.load_config(args.config, context="listener")
+    config = apply_env_overrides(config)
+
     device = args.device or config["scanner"]["device"] or scan.detect_device()
 
     # Build an OutputHandler from [[listener.destinations]] if configured.

@@ -17,6 +17,7 @@ from unittest.mock import MagicMock, patch
 
 from PIL import Image
 
+from scanner_pi.config import configuration
 from scanner_pi import scan
 
 
@@ -36,6 +37,8 @@ def _make_args(**kwargs) -> argparse.Namespace:
         prefix=None,
         quality=None,
         blank_threshold=None,
+        swskip=None,
+        swcrop=None,
     )
     defaults.update(kwargs)
     return argparse.Namespace(**defaults)
@@ -43,7 +46,7 @@ def _make_args(**kwargs) -> argparse.Namespace:
 
 def _base_config() -> dict:
     """Return a fresh deep copy of the built-in defaults."""
-    return {section: dict(values) for section, values in scan.DEFAULTS.items()}
+    return {section: dict(values) for section, values in configuration.DEFAULTS.items()}
 
 
 def _write_toml(tmp_dir: Path, content: bytes) -> Path:

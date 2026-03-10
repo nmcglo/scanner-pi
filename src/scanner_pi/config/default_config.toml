@@ -23,7 +23,7 @@ source = "ADF Duplex"
 mode = "Gray"
 
 # Scan resolution in DPI. 300 is standard quality; 600 for archival.
-resolution = 400
+resolution = 300
 
 # Per-page format written by scanimage.
 #   tiff  — lossless; largest intermediate files; best for Pillow processing
@@ -38,7 +38,7 @@ format = "tiff"
 driver_swskip = 5
 
 # Crop borders via driver: true or false
-driver_swcrop = true
+driver_swcrop = false
 
 [global.output]
 # Directory where scanned PDFs are saved by default. ~ is expanded.
@@ -109,8 +109,8 @@ jpeg_quality = 80
 # [listener.scanner]
 # source = "ADF Front"   # e.g. always simplex when using the button
 #
-# [[listener.destinations]]
-# type = "paperless_ngx"
-# base_url = "http://192.168.1.100:8000"
-# token = "your-api-token-here"
-# tag_names = ["scanner", "inbox"]
+[[listener.destinations]]
+type = "paperless_ngx"
+base_url = "http://192.168.1.100:8000"
+token = "dummytoken"
+tag_names = ["autoscan"]

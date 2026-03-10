@@ -20,6 +20,7 @@ Typical use:
 
 from __future__ import annotations
 
+import os
 import logging
 import shutil
 from abc import ABC, abstractmethod
@@ -136,6 +137,12 @@ class PaperlessNgxSpec(OutputDestinationSpec):
     correspondent_name: str | None = None
     document_type_name: str | None = None
     timeout: float = 60.0
+
+    def __post_init__(self) -> None:
+        env_token = os.getenv("SCAN_PI_PAPERLESS_NGX_TOKEN", None)
+        if env_token:
+            log.info("Using Paperless NGX token from environment variable $SCAN_PI_PAPERLESS_NGX_TOKEN")
+            self.token = env_token
 
     # ---- private helpers -------------------------------------------------- #
 
