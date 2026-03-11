@@ -20,10 +20,10 @@ device = ""
 source = "ADF Duplex"
 
 # Scan mode: Color, Gray, or Lineart
-mode = "Gray"
+mode = "Color"
 
 # Scan resolution in DPI. 300 is standard quality; 600 for archival.
-resolution = 300
+resolution = 400
 
 # Per-page format written by scanimage.
 #   tiff  — lossless; largest intermediate files; best for Pillow processing
@@ -55,7 +55,7 @@ blank_page_threshold = 0.03
 
 # JPEG quality used when embedding images into the PDF (1–95).
 # Higher values produce better quality at the cost of larger files.
-jpeg_quality = 80
+jpeg_quality = 90
 
 
 # --------------------------------------------------------------------------- #
@@ -109,8 +109,8 @@ jpeg_quality = 80
 # [listener.scanner]
 # source = "ADF Front"   # e.g. always simplex when using the button
 #
-[[listener.destinations]]
-type = "paperless_ngx"
-base_url = "http://192.168.1.100:8000"
-token = "dummytoken"
-tag_names = ["autoscan"]
+# [[listener.destinations]]
+# type = "paperless_ngx"
+# base_url = "http://192.168.1.100:8000"
+# token = "dummytoken"
+# tag_names = ["autoscan"]

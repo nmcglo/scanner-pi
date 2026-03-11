@@ -12,7 +12,7 @@ Usage:
     scan-pi --simplex               # single-sided scan
     scan-pi --mode Gray -v          # greyscale, verbose output
 """
-
+import os
 import argparse
 import logging
 import subprocess
@@ -258,6 +258,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
+    args.config = Path(os.getenv("SCAN_PI_CONFIG_PATH", str(args.config))).expanduser().resolve()
 
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,
